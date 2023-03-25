@@ -7,11 +7,16 @@ import 'package:filesystem_picker/filesystem_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:flutter_math_fork/tex.dart';
 import 'package:flutter_quill/extensions.dart';
 import 'package:flutter_quill/flutter_quill.dart' hide Text;
 import 'package:flutter_quill_extensions/flutter_quill_extensions.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'package:flutter_quill/src/utils/color.dart';
+import 'package:flutter_quill/src/utils/font.dart';
 
 import '../universal_ui/universal_ui.dart';
 import 'read_only_page.dart';
@@ -45,21 +50,79 @@ class _HomePageState extends State<HomePage> {
     _loadFromAssets();
   }
 
+  bool _onReplaceText(int index, int len, Object? replaceWith) {
+    if (len == 0 && replaceWith == '\$') {
+      // Try parsing math expression
+      // final line = _controller!.document.queryChild(index - 1);
+      int start = index - 1;
+      bool foundStart = false;
+      for (; start > 0; start -= 1) {
+        final node = _controller!.queryNode(start);
+        final char = _controller!.document.getPlainText(start, 1);
+        foundStart = char == '\$';
+        if (node is Embed || foundStart) break;
+      }
+      String text = "";
+      if (foundStart) {
+        final len = index - start;
+        String text = _controller!.document.getPlainText(start + 1, len - 1);
+        print("found ${text}");
+
+        try {
+          TexParser(text, const TexParserSettings()).parse();
+          print("parsable");
+          // Insert
+          final style = _controller!.document.collectStyle(start, len);
+          final block = FormulaBlockEmbed(text);
+          _controller!.replaceText(
+              start, len, block, TextSelection.collapsed(offset: start + 1));
+          return false;
+        } catch (e) {
+          print("parsing error");
+        }
+      }
+    }
+
+    if (len == 1 && replaceWith == '') {
+      print('on replace $index, $len, $replaceWith');
+      final node = _controller!.queryNode(index);
+      if (node is Embed) {
+        final value = node.value;
+        final strRep = '\$${value.data}';
+        print('on replace embed ${value.data} ${strRep.length}');
+        final style = _controller!.document.collectStyle(index, 1);
+        _controller!.replaceText(
+            index,
+            1,
+            '\$${value.data}',
+            TextSelection.collapsed(
+              offset: index + strRep.length,
+            ));
+        _controller!.formatTextStyle(index, strRep.length, style);
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _loadFromAssets() async {
     try {
-      final result = await rootBundle.loadString(isDesktop()
-          ? 'assets/sample_data_nomedia.json'
-          : 'assets/sample_data.json');
+      final result =
+          await rootBundle.loadString('assets/sample_data_nomedia.json');
       final doc = Document.fromJson(jsonDecode(result));
       setState(() {
         _controller = QuillController(
-            document: doc, selection: const TextSelection.collapsed(offset: 0));
+            document: doc,
+            selection: const TextSelection.collapsed(offset: 0),
+            onReplaceText: _onReplaceText);
       });
     } catch (error) {
       final doc = Document()..insert(0, 'Empty asset');
       setState(() {
         _controller = QuillController(
-            document: doc, selection: const TextSelection.collapsed(offset: 0));
+            document: doc,
+            selection: const TextSelection.collapsed(offset: 0),
+            onReplaceText: _onReplaceText);
       });
     }
   }
@@ -80,7 +143,7 @@ class _HomePageState extends State<HomePage> {
         ),
         actions: [
           IconButton(
-            onPressed: () => _addEditNote(context),
+            onPressed: () => _addMathExpression(context),
             icon: const Icon(Icons.note_add),
           ),
         ],
@@ -190,7 +253,8 @@ class _HomePageState extends State<HomePage> {
         ),
         embedBuilders: [
           ...FlutterQuillEmbeds.builders(),
-          NotesEmbedBuilder(addEditNote: _addEditNote)
+          NotesEmbedBuilder(addEditNote: _addEditNote),
+          FormulaEmbedBuilder(),
         ],
       ),
     );
@@ -231,17 +295,27 @@ class _HomePageState extends State<HomePage> {
     }
     var toolbar = QuillToolbar.basic(
       controller: _controller!,
-      embedButtons: FlutterQuillEmbeds.buttons(
-        // provide a callback to enable picking images from device.
-        // if omit, "image" button only allows adding images from url.
-        // same goes for videos.
-        onImagePickCallback: _onImagePickCallback,
-        onVideoPickCallback: _onVideoPickCallback,
-        // uncomment to provide a custom "pick from" dialog.
-        // mediaPickSettingSelector: _selectMediaPickSetting,
-        // uncomment to provide a custom "pick from" dialog.
-        // cameraPickSettingSelector: _selectCameraPickSetting,
-      ),
+      // embedButtons: FlutterQuillEmbeds.buttons(
+      //   showFormulaButton: true,
+      //   // provide a callback to enable picking images from device.
+      //   // if omit, "image" button only allows adding images from url.
+      //   // same goes for videos.
+      //   onImagePickCallback: _onImagePickCallback,
+      //   onVideoPickCallback: _onVideoPickCallback,
+      //   // uncomment to provide a custom "pick from" dialog.
+      //   // mediaPickSettingSelector: _selectMediaPickSetting,
+      //   // uncomment to provide a custom "pick from" dialog.
+      //   // cameraPickSettingSelector: _selectCameraPickSetting,
+      // ),
+      embedButtons: [
+        (controller, toolbarIconSize, iconTheme, dialogTheme) => FormulaButton(
+              icon: Icons.functions,
+              iconSize: toolbarIconSize,
+              controller: controller,
+              iconTheme: iconTheme,
+              dialogTheme: dialogTheme,
+            )
+      ],
       showAlignmentButtons: true,
       afterButtonPressed: _focusNode.requestFocus,
     );
@@ -439,6 +513,30 @@ class _HomePageState extends State<HomePage> {
     return file.path.toString();
   }
 
+  Future<void> _addMathExpression(BuildContext context,
+      {Document? document}) async {
+    // final block = BlockEmbed.custom(
+    //   NotesBlockEmbed.fromDocument(quillEditorController.document),
+    // );
+    final block = FormulaBlockEmbed('\\frac{2}{\\frac{2}{3}}');
+    final controller = _controller!;
+    final index = controller.selection.baseOffset;
+    final length = controller.selection.extentOffset - index;
+
+    final isEditing = document != null;
+    print("is editing: $isEditing");
+    if (isEditing) {
+      final offset =
+          getEmbedNode(controller, controller.selection.start).offset;
+      controller.replaceText(
+          offset, 1, block, TextSelection.collapsed(offset: offset));
+    } else {
+      // final offset = getEmbedNode(controller, controller.selection.end).offset;
+      controller.replaceText(
+          index, 0, block, TextSelection.collapsed(offset: index + 1));
+    }
+  }
+
   Future<void> _addEditNote(BuildContext context, {Document? document}) async {
     final isEditing = document != null;
     final quillEditorController = QuillController(
@@ -532,4 +630,169 @@ class NotesBlockEmbed extends CustomBlockEmbed {
       NotesBlockEmbed(jsonEncode(document.toDelta().toJson()));
 
   Document get document => Document.fromJson(jsonDecode(data));
+}
+
+//
+
+class FormulaBlockEmbed extends CustomBlockEmbed {
+  const FormulaBlockEmbed(String value) : super(noteType, value);
+
+  static const String noteType = 'formula';
+
+  String get latex => data as String;
+
+  // static FormulaBlockEmbed fromDocument(Document document) =>
+  //     FormulaBlockEmbed(jsonEncode(document.toDelta().toJson()));
+
+  // Document get document => Document.fromJson(jsonDecode(data));
+}
+
+class FormulaEmbedBuilder implements EmbedBuilder {
+  @override
+  String get key => 'formula';
+
+  @override
+  Widget build(
+    BuildContext context,
+    QuillController controller,
+    Embed node,
+    bool readOnly,
+  ) {
+    final value = FormulaBlockEmbed(node.value.data).latex;
+    // get line
+    final style = controller.document.collectStyle(node.documentOffset, 1);
+    final defaultStyles = DefaultStyles.getInstance(context);
+
+    var res = const TextStyle();
+
+    // Header
+    final header = style.attributes[Attribute.header.key];
+    final m = <Attribute, TextStyle>{
+      Attribute.h1: defaultStyles.h1!.style,
+      Attribute.h2: defaultStyles.h2!.style,
+      Attribute.h3: defaultStyles.h3!.style,
+    };
+    res = res.merge(m[header] ?? defaultStyles.paragraph!.style);
+
+    // Size
+    final size = style.attributes[Attribute.size.key];
+    if (size != null && size.value != null) {
+      switch (size.value) {
+        case 'small':
+          res = res.merge(defaultStyles.sizeSmall);
+          break;
+        case 'large':
+          res = res.merge(defaultStyles.sizeLarge);
+          break;
+        case 'huge':
+          res = res.merge(defaultStyles.sizeHuge);
+          break;
+        default:
+          res = res.merge(TextStyle(fontSize: getFontSize(size.value)));
+      }
+    }
+
+    // Color
+    final color = style.attributes[Attribute.color.key];
+    if (color != null && color.value != null) {
+      var textColor = defaultStyles.color;
+      if (color.value is String) {
+        textColor = stringToColor(color.value);
+      }
+      if (textColor != null) {
+        res = res.merge(TextStyle(color: textColor));
+      }
+    }
+
+    // Background
+    final background = style.attributes[Attribute.background.key];
+    if (background != null && background.value != null) {
+      final backgroundColor = stringToColor(background.value);
+      res = res.merge(TextStyle(backgroundColor: backgroundColor));
+    }
+
+    //
+
+    // node.
+
+    // print("STYLE ${node.style} ${child.node?.style} =>  ${collected}");
+    // print("note $value");
+
+    return Focus(
+      onFocusChange: (hasFocus) {
+        if (hasFocus) {}
+      },
+      child: Container(
+        color: Colors.red,
+        child: Math.tex(
+          value,
+          textStyle: res,
+        ),
+      ),
+    );
+  }
+}
+
+class FormulaButton extends StatelessWidget {
+  const FormulaButton({
+    required this.icon,
+    required this.controller,
+    this.iconSize = kDefaultIconSize,
+    this.fillColor,
+    this.iconTheme,
+    this.dialogTheme,
+    Key? key,
+  }) : super(key: key);
+
+  final IconData icon;
+
+  final double iconSize;
+
+  final Color? fillColor;
+
+  final QuillController controller;
+
+  final QuillIconTheme? iconTheme;
+
+  final QuillDialogTheme? dialogTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final iconColor = iconTheme?.iconUnselectedColor ?? theme.iconTheme.color;
+    final iconFillColor =
+        iconTheme?.iconUnselectedFillColor ?? (fillColor ?? theme.canvasColor);
+
+    return QuillIconButton(
+      icon: Icon(icon, size: kDefaultIconSize, color: iconColor),
+      highlightElevation: 0,
+      hoverElevation: 0,
+      size: kDefaultIconSize * 1.77,
+      fillColor: iconFillColor,
+      borderRadius: iconTheme?.borderRadius ?? 2,
+      onPressed: () => _onPressedHandler(context),
+    );
+  }
+
+  Future<void> _onPressedHandler(BuildContext context) async {
+    final index = controller.selection.baseOffset;
+    final length = controller.selection.extentOffset - index;
+    final node = controller.queryNode(index);
+    if (node is Embed) {
+      final value = node.value;
+      print("type: ${value.type}");
+
+      try {
+        TexParser("", const TexParserSettings()).parse();
+      } catch (e) {
+        print("parsing error");
+      }
+
+      controller.replaceText(index, 1, value.data, null);
+    }
+
+    // controller.replaceText(
+    //     index, length, BlockEmbed.formula('\\frac{x}{w}'), null);
+  }
 }
