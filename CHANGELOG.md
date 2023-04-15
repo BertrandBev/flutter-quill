@@ -1,5 +1,48 @@
+# [7.1.5]
+* Add tooltips for toolbar buttons.
+
+# [7.1.4]
+* Fix inserting tab character in lists.
+
+# [7.1.3]
+* Fix ios cursor bug when word.length==1.
+
+# [7.1.2]
+* Fix non scrollable editor exception, when tapped under content.
+
+# [7.1.1]
+* customLinkPrefixes parameter - makes possible to open links with custom protoco.
+
+# [7.1.0]
+* Fix ordered list numeration with several lists in document.
+
+# [7.0.9]
+* Use const constructor for EmbedBuilder.
+
+# [7.0.8]
+* Fix IME position bug with scroller.
+
+# [7.0.7]
+* Add TextFieldTapRegion for contextMenu.
+
+# [7.0.6]
+* Fix line style loss on new line from non string.
+
+# [7.0.5]
+* Fix IME position bug for Mac and Windows.
+* Unfocus when tap outside editor. fix the bug that cant refocus in afterButtonPressed after click ToggleStyleButton on Mac.
+
+# [7.0.4]
+* Have text selection span full line height for uneven sized text.
+
+# [7.0.3]
+* Fix ordered list numeration for lists with more than one level of list.
+
+# [7.0.2]
+* Allow widgets to override widget span properties.
+
 # [7.0.1]
-* Update i18n_extension depedency to version 8.0.0
+* Update i18n_extension dependency to version 8.0.0.
 
 # [7.0.0]
 * Breaking change: Tuples are no longer used. They have been replaced with a number of data classes.

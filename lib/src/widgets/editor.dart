@@ -12,7 +12,6 @@ import 'package:i18n_extension/i18n_widget.dart';
 
 import '../models/documents/document.dart';
 import '../models/documents/nodes/container.dart' as container_node;
-import '../models/documents/nodes/embeddable.dart';
 import '../models/documents/nodes/leaf.dart';
 import '../models/documents/style.dart';
 import '../models/structs/offset_value.dart';
@@ -183,6 +182,7 @@ class QuillEditor extends StatefulWidget {
       this.customShortcuts,
       this.customActions,
       this.detectWordBoundary = true,
+      this.customLinkPrefixes = const <String>[],
       Key? key})
       : super(key: key);
 
@@ -402,6 +402,12 @@ class QuillEditor extends StatefulWidget {
 
   final bool detectWordBoundary;
 
+  /// Additional list if links prefixes, which must not be prepended
+  /// with "https://" when [LinkMenuAction.launch] happened
+  ///
+  /// Useful for deeplinks
+  final List<String> customLinkPrefixes;
+
   @override
   QuillEditorState createState() => QuillEditorState();
 }
@@ -499,6 +505,7 @@ class QuillEditorState extends State<QuillEditor>
       onImagePaste: widget.onImagePaste,
       customShortcuts: widget.customShortcuts,
       customActions: widget.customActions,
+      customLinkPrefixes: widget.customLinkPrefixes,
     );
 
     final editor = I18n(
@@ -1128,7 +1135,7 @@ class RenderEditor extends RenderEditableContainerBox
       start: localWord.start + nodeOffset,
       end: localWord.end + nodeOffset,
     );
-    if (position.offset - word.start <= 1) {
+    if (position.offset - word.start <= 1 && word.end != position.offset) {
       _handleSelectionChange(
         TextSelection.collapsed(offset: word.start),
         cause,
@@ -1787,7 +1794,10 @@ class RenderEditableContainerBox extends RenderBox
       dy += child.size.height;
       child = childAfter(child);
     }
-    throw StateError('No child at offset $offset.');
+
+    // this case possible, when editor not scrollable,
+    // but minHeight > content height and tap was under content
+    return lastChild!;
   }
 
   @override
